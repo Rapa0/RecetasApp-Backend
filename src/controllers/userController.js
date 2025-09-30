@@ -1,6 +1,7 @@
 const User = require('../models/User.js');
 const Recipe = require('../models/Recipe.js');
-const sendEmail = require('../utils/sendEmail'); 
+const Group = require('../models/Group.js');
+const sendEmail = require('../utils/sendEmail.js');
 
 const getUserProfile = async (req, res) => {
   try {
@@ -15,6 +16,7 @@ const getUserProfile = async (req, res) => {
       res.status(404).json({ message: 'Usuario no encontrado' });
     }
   } catch (error) {
+    console.error('Error al obtener perfil:', error);
     res.status(500).json({ message: 'Error del servidor' });
   }
 };
@@ -34,13 +36,10 @@ const updateUserProfile = async (req, res) => {
       user.username = req.body.username;
     }
     
-    const updatedUser = await user.save();
-    res.json({
-      _id: updatedUser._id,
-      username: updatedUser.username,
-      email: updatedUser.email,
-    });
+    await user.save();
+    res.json({ _id: user._id, username: user.username, email: user.email });
   } catch (error) {
+    console.error('Error al actualizar perfil:', error);
     res.status(500).json({ message: 'Error del servidor al actualizar perfil' });
   }
 };
@@ -49,41 +48,36 @@ const requestEmailChange = async (req, res) => {
     const { newEmail } = req.body;
     try {
         const user = await User.findById(req.user._id);
-        if (!user) {
-            return res.status(404).json({ message: 'Usuario no encontrado' });
-        }
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
 
-        if (newEmail === user.email) {
+        if (newEmail.toLowerCase() === user.email.toLowerCase()) {
             return res.status(400).json({ message: 'El nuevo correo es el mismo que el actual.' });
         }
-
         const emailExists = await User.findOne({ email: newEmail });
         if (emailExists) {
-            return res.status(400).json({ message: 'Ese correo ya está registrado por otro usuario.' });
+            return res.status(400).json({ message: 'Ese correo ya está registrado.' });
         }
 
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-
         user.emailChangeCandidate = newEmail;
         user.emailChangeCode = verificationCode;
         user.emailChangeCodeExpires = Date.now() + 10 * 60 * 1000; 
-
         await user.save();
 
-        const message = `Tu código de verificación para cambiar tu correo es: ${verificationCode}. El código expira en 10 minutos.`;
+        const message = `Tu código para verificar tu nuevo correo es: ${verificationCode}\nEste código expira en 10 minutos.`;
         await sendEmail({
-            to: newEmail,
+            email: newEmail,
             subject: 'Código de Verificación - Cambio de Correo',
-            text: message,
+            message: message,
         });
 
-        res.json({ message: `Se ha enviado un código de verificación a ${newEmail}` });
-
+        res.json({ message: `Se ha enviado un código a ${newEmail}` });
     } catch (error) {
         console.error('Error al solicitar cambio de email:', error);
-        res.status(500).json({ message: 'Error del servidor al solicitar cambio de correo.' });
+        res.status(500).json({ message: 'Error del servidor.' });
     }
 };
+
 
 const verifyEmailChange = async (req, res) => {
     const { code } = req.body;
@@ -102,26 +96,24 @@ const verifyEmailChange = async (req, res) => {
         user.emailChangeCandidate = undefined;
         user.emailChangeCode = undefined;
         user.emailChangeCodeExpires = undefined;
-
         await user.save();
 
         res.json({ message: 'Correo electrónico actualizado con éxito.' });
-
     } catch (error) {
         console.error('Error al verificar cambio de email:', error);
-        res.status(500).json({ message: 'Error del servidor al verificar el código.' });
+        res.status(500).json({ message: 'Error del servidor.' });
     }
 };
 
 const deleteUser = async (req, res) => {
     try {
         const user = await User.findById(req.user._id);
-
         if (user) {
             await Recipe.deleteMany({ user: req.user._id });
-            
+            await Group.deleteMany({ user: req.user._id });
+
             await user.deleteOne();
-            res.json({ message: 'Usuario y sus recetas han sido eliminados' });
+            res.json({ message: 'Usuario, recetas y grupos han sido eliminados' });
         } else {
             res.status(404).json({ message: 'Usuario no encontrado' });
         }

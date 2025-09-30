@@ -6,7 +6,7 @@ const {
     deleteUser, 
     changePassword,
     requestEmailChange,
-    verifyEmailChange
+    verifyEmailChange 
 } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 
