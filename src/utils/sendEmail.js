@@ -1,31 +1,24 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const sendEmail = async (options) => {
-
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    auth: {
-      user: process.env.EMAIL_USER, 
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
- 
-  const mailOptions = {
-    from: 'RecetasApp <no-reply@recetasapp.com>',
+  const msg = {
     to: options.email,
+    from: process.env.FROM_EMAIL, //
     subject: options.subject,
     text: options.message,
+
   };
 
-
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Correo enviado con éxito:', info.response);
+    await sgMail.send(msg);
+    console.log(`Correo enviado exitosamente a ${options.email}`);
   } catch (error) {
-    console.error('Error al enviar el correo:', error);
-
+    console.error('Error al enviar el correo con SendGrid:', error);
+    if (error.response) {
+      console.error(error.response.body);
+    }
     throw new Error('No se pudo enviar el email de verificación.');
   }
 };
