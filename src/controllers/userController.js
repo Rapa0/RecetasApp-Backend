@@ -1,10 +1,10 @@
 const User = require('../models/User.js');
-const Recipe = require('../models/Recipe.js'); // Importamos Recipe para usarlo en deleteUser
+const Recipe = require('../models/Recipe.js');
+const sendEmail = require('../utils/sendEmail'); 
 
 const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-
     if (user) {
       res.json({
         _id: user._id,
@@ -15,7 +15,6 @@ const getUserProfile = async (req, res) => {
       res.status(404).json({ message: 'Usuario no encontrado' });
     }
   } catch (error) {
-    console.error('Error al obtener perfil:', error);
     res.status(500).json({ message: 'Error del servidor' });
   }
 };
@@ -23,14 +22,10 @@ const getUserProfile = async (req, res) => {
 const updateUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    // --- INICIO DE LA CORRECCIÓN ---
-
-    // Verificar si el nuevo username ya está en uso por OTRO usuario
     if (req.body.username && req.body.username !== user.username) {
       const existingUser = await User.findOne({ username: req.body.username });
       if (existingUser && existingUser._id.toString() !== user._id.toString()) {
@@ -38,18 +33,7 @@ const updateUserProfile = async (req, res) => {
       }
       user.username = req.body.username;
     }
-
-    // Verificar si el nuevo email ya está en uso por OTRO usuario
-    if (req.body.email && req.body.email !== user.email) {
-      const existingEmail = await User.findOne({ email: req.body.email });
-      if (existingEmail && existingEmail._id.toString() !== user._id.toString()) {
-        return res.status(400).json({ message: 'Ese correo electrónico ya está en uso' });
-      }
-      user.email = req.body.email;
-    }
     
-    // --- FIN DE LA CORRECCIÓN ---
-
     const updatedUser = await user.save();
     res.json({
       _id: updatedUser._id,
@@ -57,13 +41,76 @@ const updateUserProfile = async (req, res) => {
       email: updatedUser.email,
     });
   } catch (error) {
-    console.error('Error al actualizar perfil:', error);
-    // Devuelve un mensaje de error más específico si aún ocurre un error de duplicado
-    if (error.code === 11000) {
-        return res.status(400).json({ message: 'El nombre de usuario o email ya está en uso.' });
-    }
-    res.status(500).json({ message: 'Error del servidor' });
+    res.status(500).json({ message: 'Error del servidor al actualizar perfil' });
   }
+};
+
+const requestEmailChange = async (req, res) => {
+    const { newEmail } = req.body;
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        if (newEmail === user.email) {
+            return res.status(400).json({ message: 'El nuevo correo es el mismo que el actual.' });
+        }
+
+        const emailExists = await User.findOne({ email: newEmail });
+        if (emailExists) {
+            return res.status(400).json({ message: 'Ese correo ya está registrado por otro usuario.' });
+        }
+
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        user.emailChangeCandidate = newEmail;
+        user.emailChangeCode = verificationCode;
+        user.emailChangeCodeExpires = Date.now() + 10 * 60 * 1000; 
+
+        await user.save();
+
+        const message = `Tu código de verificación para cambiar tu correo es: ${verificationCode}. El código expira en 10 minutos.`;
+        await sendEmail({
+            to: newEmail,
+            subject: 'Código de Verificación - Cambio de Correo',
+            text: message,
+        });
+
+        res.json({ message: `Se ha enviado un código de verificación a ${newEmail}` });
+
+    } catch (error) {
+        console.error('Error al solicitar cambio de email:', error);
+        res.status(500).json({ message: 'Error del servidor al solicitar cambio de correo.' });
+    }
+};
+
+const verifyEmailChange = async (req, res) => {
+    const { code } = req.body;
+    try {
+        const user = await User.findOne({ 
+            _id: req.user._id,
+            emailChangeCode: code,
+            emailChangeCodeExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: 'Código inválido o expirado.' });
+        }
+
+        user.email = user.emailChangeCandidate;
+        user.emailChangeCandidate = undefined;
+        user.emailChangeCode = undefined;
+        user.emailChangeCodeExpires = undefined;
+
+        await user.save();
+
+        res.json({ message: 'Correo electrónico actualizado con éxito.' });
+
+    } catch (error) {
+        console.error('Error al verificar cambio de email:', error);
+        res.status(500).json({ message: 'Error del servidor al verificar el código.' });
+    }
 };
 
 const deleteUser = async (req, res) => {
@@ -71,8 +118,6 @@ const deleteUser = async (req, res) => {
         const user = await User.findById(req.user._id);
 
         if (user) {
-            // CORRECCIÓN DE BUG: Se elimina también las recetas del usuario
-            // La variable 'usuarioId' no estaba definida, se usa req.user._id
             await Recipe.deleteMany({ user: req.user._id });
             
             await user.deleteOne();
@@ -112,4 +157,11 @@ const changePassword = async (req, res) => {
   }
 };
 
-module.exports = { getUserProfile, updateUserProfile, deleteUser, changePassword };
+module.exports = { 
+    getUserProfile, 
+    updateUserProfile, 
+    deleteUser, 
+    changePassword,
+    requestEmailChange,
+    verifyEmailChange,
+};

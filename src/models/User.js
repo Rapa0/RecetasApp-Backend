@@ -26,6 +26,10 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // --- CAMPOS AÑADIDOS ---
+  emailChangeCandidate: { type: String },
+  emailChangeCode: { type: String },
+  emailChangeCodeExpires: { type: Date },
 });
 
 UserSchema.pre('save', async function (next) {

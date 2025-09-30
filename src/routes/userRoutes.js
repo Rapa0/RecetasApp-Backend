@@ -4,7 +4,9 @@ const {
     getUserProfile, 
     updateUserProfile, 
     deleteUser, 
-    changePassword 
+    changePassword,
+    requestEmailChange,
+    verifyEmailChange
 } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -15,5 +17,8 @@ router
   .delete(protect, deleteUser);
 
 router.route('/profile/changepassword').put(protect, changePassword);
+
+router.post('/request-email-change', protect, requestEmailChange);
+router.post('/verify-email-change', protect, verifyEmailChange);
 
 module.exports = router;
