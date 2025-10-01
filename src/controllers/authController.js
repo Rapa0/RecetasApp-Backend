@@ -3,16 +3,19 @@ const jwt = require('jsonwebtoken');
 const sendEmail = require('../utils/sendEmail');
 const bcrypt = require('bcryptjs');
 
+// --- FUNCIÓN AUXILIAR PARA GENERAR TOKEN DE SESIÓN ---
 const generateToken = id => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 };
 
+// --- NUEVA FUNCIÓN DE REGISTRO (SIN GUARDAR EN DB) ---
 const registerUser = async (req, res) => {
   const { username, email, password } = req.body;
 
   try {
+    // 1. Verificar si el email o username ya existen EN UN USUARIO VERIFICADO
     const userExists = await User.findOne({ 
         $or: [{ email: email.toLowerCase() }, { username }] 
     });
@@ -20,11 +23,14 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'El nombre de usuario o correo ya está en uso.' });
     }
 
+    // 2. Hashear la contraseña
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
+    // 3. Generar código de confirmación
     const confirmToken = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // 4. Crear un payload con TODOS los datos necesarios
     const registrationPayload = {
       username,
       email: email.toLowerCase(),
@@ -32,10 +38,12 @@ const registerUser = async (req, res) => {
       confirmationCode: confirmToken,
     };
 
+    // 5. Crear un token JWT temporal que guarde el payload
     const registrationToken = jwt.sign(registrationPayload, process.env.JWT_SECRET, {
-      expiresIn: '15m', 
+      expiresIn: '15m', // El usuario tiene 15 minutos para confirmar
     });
 
+    // 6. Enviar el correo con el código
     const message = `Bienvenido a RecetasApp. Tu código de confirmación es: ${confirmToken}`;
     await sendEmail({
       email: email,
@@ -43,6 +51,7 @@ const registerUser = async (req, res) => {
       message,
     });
     
+    // 7. Devolver el token temporal a la app
     res.status(200).json({
       success: true,
       message: 'Código de confirmación enviado al correo.',
@@ -55,6 +64,7 @@ const registerUser = async (req, res) => {
   }
 };
 
+// --- NUEVA FUNCIÓN DE CONFIRMACIÓN (CREA EL USUARIO EN DB) ---
 const confirmEmail = async (req, res) => {
     const { code, registrationToken } = req.body;
 
@@ -76,6 +86,11 @@ const confirmEmail = async (req, res) => {
             return res.status(400).json({ message: 'El nombre de usuario o correo ya fue registrado por otra persona.' });
         }
         
+        // Si existe un usuario fantasma, lo eliminamos antes de crear el verificado
+        if (userExists && !userExists.isVerified) {
+            await User.deleteOne({ _id: userExists._id });
+        }
+
         const user = await User.create({
             username: decoded.username,
             email: decoded.email,
@@ -99,12 +114,50 @@ const confirmEmail = async (req, res) => {
     }
 };
 
+// --- NUEVA FUNCIÓN PARA REENVIAR CÓDIGO ---
+const resendConfirmationCode = async (req, res) => {
+  const { registrationToken: oldToken } = req.body;
+  if (!oldToken) {
+    return res.status(400).json({ message: 'Token no proporcionado.' });
+  }
+  try {
+    const decodedOld = jwt.verify(oldToken, process.env.JWT_SECRET, {
+      ignoreExpiration: true,
+    });
+    const newConfirmToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const newRegistrationPayload = {
+      username: decodedOld.username,
+      email: decodedOld.email,
+      password: decodedOld.password,
+      confirmationCode: newConfirmToken,
+    };
+    const newRegistrationToken = jwt.sign(newRegistrationPayload, process.env.JWT_SECRET, {
+      expiresIn: '15m',
+    });
+    const message = `Tu nuevo código de confirmación es: ${newConfirmToken}`;
+    await sendEmail({
+      email: decodedOld.email,
+      subject: 'Nuevo Código de Confirmación - RecetasApp',
+      message,
+    });
+    res.status(200).json({
+      success: true,
+      message: 'Un nuevo código ha sido enviado a tu correo.',
+      registrationToken: newRegistrationToken,
+    });
+  } catch (error) {
+    console.error('Error al reenviar el código:', error);
+    res.status(500).json({ message: 'No se pudo reenviar el código. Por favor, intenta registrarte de nuevo.' });
+  }
+};
+
+// --- TUS OTRAS FUNCIONES ORIGINALES ---
 const loginUser = async (req, res) => {
   const {email, password} = req.body;
   try {
     const user = await User.findOne({email: email.toLowerCase()});
 
-    if (!user) {
+    if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({message: 'Credenciales inválidas'});
     }
 
@@ -112,16 +165,12 @@ const loginUser = async (req, res) => {
       return res.status(401).json({message: 'Por favor, confirma tu correo antes de iniciar sesión.'});
     }
 
-    if (await user.matchPassword(password)) {
-      res.json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(401).json({message: 'Credenciales inválidas'});
-    }
+    res.json({
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      token: generateToken(user._id),
+    });
   } catch (error) {
     console.error('Error en el login:', error);
     res.status(500).json({message: 'Error del servidor'});
@@ -195,10 +244,10 @@ const resetPassword = async (req, res) => {
     await user.save();
 
     res.status(200).json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        token: generateToken(user._id),
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      token: generateToken(user._id),
     });
   } catch (error) {
     console.error('Error reseteando contraseña:', error);
@@ -213,4 +262,5 @@ module.exports = {
   forgotPassword,
   verifyResetCode,
   resetPassword,
+  resendConfirmationCode,
 };

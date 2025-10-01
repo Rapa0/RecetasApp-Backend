@@ -3,17 +3,20 @@ const router = express.Router();
 const {
   registerUser,
   loginUser,
-  forgotPassword,
-  resetPassword,
   confirmEmail,
+  forgotPassword,
   verifyResetCode,
+  resetPassword,
+  resendConfirmationCode, 
 } = require('../controllers/authController');
 
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.post('/confirmEmail', confirmEmail);
 router.post('/forgotpassword', forgotPassword);
-router.patch('/resetpassword/:token', resetPassword);
-router.post('/confirmemail', confirmEmail);
 router.post('/verifyresetcode', verifyResetCode);
+router.put('/resetpassword', resetPassword); 
+
+router.post('/resend-confirmation', resendConfirmationCode);
 
 module.exports = router;
