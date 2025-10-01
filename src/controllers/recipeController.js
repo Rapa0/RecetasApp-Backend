@@ -103,21 +103,27 @@ const createRecipe = async (req, res) => {
 };
 
 const updateRecipe = async (req, res) => {
-  const { title, description, ingredients, instructions, imageData } = req.body;
+  const { title, description, ingredients, instructions } = req.body;
   try {
     const recipe = await Recipe.findById(req.params.id);
     if (!recipe) { return res.status(404).json({ message: 'Receta no encontrada' }); }
     if (recipe.user.toString() !== req.user._id.toString()) { return res.status(401).json({ message: 'No autorizado' }); }
+    
     recipe.title = title || recipe.title;
-    recipe.description = description || recipe.description;
+    recipe.description = description !== undefined ? description : recipe.description;
     recipe.ingredients = ingredients || recipe.ingredients;
     recipe.instructions = instructions || recipe.instructions;
-    if (imageData) {
-      const uploadedImage = await cloudinary.uploader.upload(imageData, { upload_preset: 'recetas_app' });
-      recipe.imageUrl = uploadedImage.secure_url;
-    } else if (imageData === null) {
-      recipe.imageUrl = '';
+
+
+    if (req.body.imageData !== undefined) {
+        if (req.body.imageData) { 
+            const uploadedImage = await cloudinary.uploader.upload(req.body.imageData, { upload_preset: 'recetas_app' });
+            recipe.imageUrl = uploadedImage.secure_url;
+        } else {
+            recipe.imageUrl = '';
+        }
     }
+
     const updatedRecipe = await recipe.save();
     res.json(updatedRecipe);
   } catch (error) {
