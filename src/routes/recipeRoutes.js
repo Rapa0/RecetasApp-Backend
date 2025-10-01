@@ -7,10 +7,13 @@ const {
   updateRecipe,
   deleteRecipe,
   likeRecipe,
+  getMyRecipes,
 } = require('../controllers/recipeController');
 const { protect } = require('../middleware/authMiddleware');
 
 router.route('/').get(getRecipes).post(protect, createRecipe);
+
+router.route('/myrecipes').get(protect, getMyRecipes);
 
 router
   .route('/:id')
